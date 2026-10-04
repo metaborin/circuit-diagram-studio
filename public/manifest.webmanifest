@@ -1,0 +1,17 @@
+{
+  "id": "/circuit-diagram-studio/",
+  "name": "回路図スタジオ",
+  "short_name": "回路図スタジオ",
+  "description": "教材用の回路図を編集し、SVG・PNG・印刷用PDFに出力するアプリ",
+  "lang": "ja",
+  "start_url": "/circuit-diagram-studio/",
+  "scope": "/circuit-diagram-studio/",
+  "display": "standalone",
+  "background_color": "#f5f6f2",
+  "theme_color": "#173c32",
+  "icons": [
+    { "src": "icons/circuit-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/circuit-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/circuit-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
