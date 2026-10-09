@@ -335,3 +335,105 @@ test('ambiguous overlap blocks diagram export while JSON stays available', async
   expect(await current(page)).toEqual(original)
   expect((await exportDownload(page, 'SVG', info)).buffer.toString('utf8')).toContain('10 Ω')
 })
+
+test('first visit starts with templates and file status follows save, edit, undo and reopen', async ({ page }, info) => {
+  await expect(page.getByRole('button', { name: 'ひな形', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.file-save-status')).toHaveText('編集データは未保存')
+  await chooseTemplate(page, 'resistor-parallel')
+  await expect(page.getByRole('button', { name: '部品', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  const original = await current(page)
+  const jsonPath = await saveJson(page, info)
+  await expect(page.locator('.file-save-status')).toHaveText('編集データは保存済み')
+  const resistor = original.components.find(c => c.kind === 'resistor')!
+  await selectComponent(page, resistor)
+  await page.getByLabel('値', { exact: true }).fill('68')
+  await expect(page.locator('.file-save-status')).toHaveText('編集データは未保存')
+  await page.getByRole('button', { name: '元に戻す', exact: true }).click()
+  await expect(page.locator('.file-save-status')).toHaveText('編集データは保存済み')
+  expect(await current(page)).toEqual(original)
+  await page.reload()
+  await expect(page.locator('.file-save-status')).toHaveText('編集データの保存を確認')
+  expect(await current(page)).toEqual(original)
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByLabel('編集データのJSONファイルを開く').setInputFiles(jsonPath)
+  await expect(page.locator('.file-save-status')).toHaveText('編集データは保存済み')
+  expect(await current(page)).toEqual(original)
+  await expect(page.getByRole('status')).toContainText('編集データを開きました')
+})
+
+test('keyboard selection, movement and recovery preserve connections; overlays keep focus', async ({ page }) => {
+  const original = await current(page)
+  const resistor = original.components.find(c => c.kind === 'resistor')!
+  const element = paper(page).locator(`[data-type="component"][data-id="${resistor.id}"]`)
+  await page.getByRole('button', { name: '全体表示', exact: true }).focus()
+  // Wires, then the battery, then the first resistor are reachable with Tab.
+  for (let i = 0; i < original.wires.length + 2; i++) await page.keyboard.press('Tab')
+  await expect(element).toBeFocused()
+  expect(await element.evaluate(el => getComputedStyle(el).outlineStyle)).toBe('solid')
+  await page.keyboard.press('Enter')
+  await expect(page.getByLabel('記号', { exact: true })).toHaveValue(resistor.label)
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('r')
+  expect((await current(page)).components.find(c => c.id === resistor.id)).toMatchObject({ x: resistor.x + 20, rotation: 90 })
+  expect((await current(page)).wires).toEqual(original.wires)
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  expect(await current(page)).toEqual(original)
+  await element.press('Space')
+  await expect(page.getByLabel('記号', { exact: true })).toHaveValue(resistor.label)
+
+  const exporting = page.getByRole('button', { name: '図を書き出す', exact: true })
+  await exporting.click()
+  await expect(page.getByRole('button', { name: /^PNG画像/ })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.export-menu')).toHaveCount(0)
+  await expect(exporting).toBeFocused()
+  await expect(page.getByLabel('記号', { exact: true })).toHaveValue(resistor.label)
+
+  const help = page.getByRole('button', { name: '使い方', exact: true })
+  const close = page.getByRole('button', { name: '使い方を閉じる' })
+  await help.click()
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: '編集をはじめる' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByRole('button', { name: '編集をはじめる' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(help).toBeFocused()
+  expect(await current(page)).toEqual(original)
+})
+
+test('guidance, readable labels and controls fit desktop and narrow layouts', async ({ page }, info) => {
+  await page.getByRole('button', { name: '部品', exact: true }).click()
+  for (const [width, height] of [[1600, 1000], [1366, 768], [1280, 720], [1100, 768], [1000, 768], [950, 768], [768, 1024], [621, 900], [620, 900], [390, 844], [320, 800]]) {
+    await page.setViewportSize({ width, height })
+    const layout = await page.evaluate(() => {
+      const controls = [...document.querySelectorAll<HTMLElement>('.document-actions button, .canvas-toolbar button')]
+      const boxes = controls.map(el => el.getBoundingClientRect())
+      const guide = document.querySelector('.canvas-hint')!.getBoundingClientRect()
+      return {
+        overflow: document.documentElement.scrollWidth > innerWidth,
+        clipped: controls.some((el, index) => boxes[index].left < 0 || boxes[index].right > innerWidth || el.scrollWidth > el.clientWidth + 1),
+        overlap: boxes.some((a, i) => boxes.slice(i + 1).some(b => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1)),
+        fontSize: parseFloat(getComputedStyle(document.querySelector('.part-button')!).fontSize),
+        guideVisible: guide.top >= 0 && guide.bottom <= innerHeight,
+      }
+    })
+    expect(layout.overflow, `${width}px page overflow`).toBe(false)
+    expect(layout.clipped, `${width}px clipped controls`).toBe(false)
+    expect(layout.overlap, `${width}px overlapping controls`).toBe(false)
+    expect(layout.fontSize).toBeGreaterThanOrEqual(12)
+    if (width >= 1100) expect(layout.guideVisible).toBe(true)
+    if (width === 1366 || width === 390) await page.screenshot({ path: info.outputPath(`usability-${width}.png`), fullPage: true })
+  }
+  await page.getByRole('button', { name: '配線', exact: true }).click()
+  await expect(page.locator('.canvas-hint')).toContainText('配線：始点を選ぶ')
+  await page.getByRole('button', { name: '選択に戻る', exact: true }).click()
+  await expect(page.getByRole('button', { name: '選択・移動', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.setViewportSize({ width: 1366, height: 768 })
+  await page.getByRole('button', { name: '全体表示', exact: true }).click()
+  await expect.poll(() => page.locator('.canvas-scroll').evaluate(el => el.scrollHeight <= el.clientHeight + 2 && el.scrollWidth <= el.clientWidth + 2)).toBe(true)
+})

@@ -145,28 +145,38 @@ function wirePaths(document: CircuitDocument): Map<string, string> {
   return result
 }
 
-type CircuitSvgProps = Omit<SVGProps<SVGSVGElement>, 'children'> & {
+type CircuitSvgProps = Omit<SVGProps<SVGSVGElement>, 'children' | 'onSelect'> & {
   document: CircuitDocument; selected?: Selection; showPorts?: boolean; grid?: boolean; children?: ReactNode; exportMode?: boolean;
+  onSelect?: (selection: NonNullable<Selection>) => void;
 }
 
-export function CircuitSvg({ document, selected = null, showPorts = false, grid = false, children, exportMode = false, ...svgProps }: CircuitSvgProps) {
+export function CircuitSvg({ document, selected = null, showPorts = false, grid = false, children, exportMode = false, onSelect, ...svgProps }: CircuitSvgProps) {
   const paths = wirePaths(document)
   const bounds = diagramBounds(document)
   const margin = Math.max(8, Math.min(240, document.settings.margin || 24))
   const isSelected = (type: NonNullable<Selection>['type'], id: string) => !exportMode && selected?.type === type && selected.id === id
-  return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 680" role="img" aria-label={document.title || '電気回路図'} {...svgProps} style={{ fontFamily: FONT, ...svgProps.style }}>
+  const interactive = (type: NonNullable<Selection>['type'], id: string, label: string): SVGProps<SVGGElement> => exportMode || !onSelect ? {} : {
+    tabIndex: 0, role: 'button', 'aria-label': label, 'aria-pressed': isSelected(type, id),
+    onKeyDown: event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault(); event.stopPropagation(); onSelect({ type, id })
+      }
+    },
+  }
+  const names: Record<CircuitComponent['kind'], string> = { resistor: '抵抗', inductor: 'コイル', capacitor: 'コンデンサ', battery: '電池', dc: '直流電源', ac: '交流電源', switch: 'スイッチ', ammeter: '電流計', voltmeter: '電圧計' }
+  return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 680" role={!exportMode && onSelect ? 'group' : 'img'} aria-label={document.title || '電気回路図'} {...svgProps} style={{ fontFamily: FONT, ...svgProps.style }}>
     <title>{document.title || '電気回路図'}</title>
     {grid && !exportMode && <><defs><pattern id="circuit-grid" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r="1" fill="#cbd5e1" /></pattern></defs><rect width="1040" height="680" fill="url(#circuit-grid)" pointerEvents="none" /></>}
     {exportMode && document.settings.showTitle && document.title && <text x={bounds.x + bounds.width / 2} y={bounds.y + margin + 25} textAnchor="middle" fontSize="22" fontWeight="700" fill={INK}><ScriptText text={document.title} /></text>}
     <g fill="none" stroke={INK} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      {document.wires.map(wire => <g key={wire.id} data-type="wire" data-id={wire.id}>
+      {document.wires.map((wire, index) => <g key={wire.id} data-type="wire" data-id={wire.id} {...interactive('wire', wire.id, `配線 ${index + 1}`)}>
         {!exportMode && <path d={paths.get(wire.id)} stroke="transparent" strokeWidth="16" pointerEvents="stroke" />}
         {isSelected('wire', wire.id) && <path d={paths.get(wire.id)} stroke="#b5d5ff" strokeWidth="7" pointerEvents="none" />}
         <path d={paths.get(wire.id)} pointerEvents="none" />
       </g>)}
       {document.components.map(component => {
         const layout = labelLayout(component)
-        return <g key={component.id} data-type="component" data-id={component.id}>
+        return <g key={component.id} data-type="component" data-id={component.id} {...interactive('component', component.id, `${names[component.kind]} ${component.label} ${component.value} ${component.unit}`.trim())}>
           <g transform={`translate(${component.x} ${component.y}) rotate(${component.rotation})`}>
             {!exportMode && <rect x="-41" y="-28" width="82" height="56" rx="5" stroke={isSelected('component', component.id) ? '#2563eb' : 'none'} strokeWidth="1.5" strokeDasharray="4 3" fill={isSelected('component', component.id) ? '#eff6ff' : 'transparent'} pointerEvents="all" />}
             <g pointerEvents="none"><Symbol component={component} resistorStyle={document.settings.resistorStyle} /></g>
@@ -189,9 +199,9 @@ export function CircuitSvg({ document, selected = null, showPorts = false, grid 
           })}
         </g>
       })}
-      {document.junctions.map(node => {
+      {document.junctions.map((node, index) => {
         const degree = document.wires.reduce((sum, wire) => sum + Number(wire.from.type === 'junction' && wire.from.id === node.id) + Number(wire.to.type === 'junction' && wire.to.id === node.id), 0)
-        return <g key={node.id} data-type="junction" data-id={node.id}>
+        return <g key={node.id} data-type="junction" data-id={node.id} {...interactive('junction', node.id, `${node.terminal ? '端子' : '接続点'} ${node.label || index + 1}`)}>
           {!exportMode && <circle cx={node.x} cy={node.y} r="12" fill="transparent" stroke={isSelected('junction', node.id) ? '#2563eb' : 'none'} strokeDasharray="3 2" pointerEvents="all" />}
           {(node.terminal || degree >= 3) && <circle cx={node.x} cy={node.y} r={node.terminal ? 5 : 3.6} fill={node.terminal ? 'white' : INK} pointerEvents="none" />}
           {!exportMode && !node.terminal && degree < 3 && showPorts && <circle cx={node.x} cy={node.y} r="3.5" fill="white" stroke="#2563eb" pointerEvents="none" />}
@@ -200,7 +210,7 @@ export function CircuitSvg({ document, selected = null, showPorts = false, grid 
       })}
       {document.annotations.map(annotation => {
         const layout = annotationLabel(annotation)
-        return <g key={annotation.id} data-type="annotation" data-id={annotation.id}>
+        return <g key={annotation.id} data-type="annotation" data-id={annotation.id} {...interactive('annotation', annotation.id, `注記 ${annotation.text}`)}>
           {annotation.kind !== 'text' && <g transform={`translate(${annotation.x} ${annotation.y}) rotate(${annotation.rotation})`}>
             {!exportMode && <rect x="-54" y="-12" width="108" height="24" fill="transparent" stroke={isSelected('annotation', annotation.id) ? '#2563eb' : 'none'} strokeDasharray="3 2" pointerEvents="all" />}
             {annotation.kind === 'current' ? <><path d="M -34 0 H 34" /><path d="M 24 -6 L 34 0 L 24 6" /></> : <><path d="M -28 0 H 28" /><path d="M -18 -6 L -28 0 L -18 6" /><g transform={`translate(-43 0) rotate(${-annotation.rotation})`}><text y="5" fill={INK} stroke="none" fontSize="17" textAnchor="middle">+</text></g><g transform={`translate(43 0) rotate(${-annotation.rotation})`}><text y="5" fill={INK} stroke="none" fontSize="17" textAnchor="middle">−</text></g></>}

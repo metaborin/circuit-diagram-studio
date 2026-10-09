@@ -1,0 +1,117 @@
+/* Keep the existing green palette while making task labels readable. */
+.app-header { height: 60px; padding: 0 22px; }
+main { padding: 16px 20px 0; }
+.document-bar { margin-bottom: 14px; gap: 12px; }
+.title-input { font-size: 24px; }
+.local-badge { flex-wrap: wrap; gap: 7px; color: #52634d; font-size: 12px; line-height: 1.6; }
+.file-save-status { border-left: 1px solid #bdc8b8; padding-left: 9px; }
+.file-save-status.unsaved { color: #66502d; }
+.edit-data-hint { font-size: 12px; color: #52634d; }
+.pwa-panel { padding: 5px 12px; margin-bottom: 10px; }
+.pwa-line { gap: 5px 14px; }
+.pwa-line details { flex-basis: auto; }
+.editor-layout { grid-template-columns: 220px minmax(0, 1fr) 274px; }
+.library-panel, .properties-panel { min-height: 0; }
+.panel-tabs { height: 46px; gap: 12px; flex-shrink: 0; background: #fdfefb; }
+.panel-tabs button { font-size: 13px; color: #52634d; }
+.panel-section-heading { font-size: 12px; margin: 14px 14px 10px; }
+.panel-section-heading span { font-size: 11px; color: #52634d; }
+.parts-grid, .utility-list { flex-shrink: 0; }
+.part-button { font-size: 12px; height: 64px; color: #394c35; }
+.utility-list button { font-size: 12px; min-height: 32px; }
+.library-tip { display: none; }
+.library-instructions { margin: 0 14px 12px; font-size: 12px; line-height: 1.7; color: #52634d; }
+.template-list { min-height: 0; flex: 1; max-height: none; }
+.template-list small, .template-list span { font-size: 12px; color: #52634d; }
+.template-list strong { font-size: 13px; color: #253e31; }
+.template-list button { flex-shrink: 0; }
+.new-document { position: static; margin: 12px 13px; min-height: 36px; flex-shrink: 0; font-size: 12px; color: #52634d; }
+.canvas-toolbar { height: auto; min-height: 46px; flex-wrap: wrap; flex-shrink: 0; padding: 5px 10px; }
+.canvas-toolbar button { font-size: 12px; min-height: 34px; color: #52634d; flex-shrink: 0; }
+.canvas-view-tools { display: flex; align-items: center; gap: 3px; margin-left: auto; flex-shrink: 0; }
+.zoom-label { font-size: 12px; color: #52634d; }
+.canvas-hint { min-height: 50px; padding: 7px 12px; align-items: center; flex-shrink: 0; font-size: 12px; line-height: 1.6; color: #43563c; border-top: 0; border-bottom: 1px solid #e1e6dc; }
+.canvas-hint > span { min-width: 0; flex: 1; }
+.canvas-hint strong { display: block; font-weight: 650; color: #214e3e; }
+.canvas-hint button { min-height: 34px; padding: 5px 8px; font-size: 12px; flex-shrink: 0; }
+.canvas-caption { padding: 5px 12px; font-size: 11px; color: #52634d; flex-shrink: 0; }
+.canvas-caption > span:first-child { color: #52634d; }
+.canvas-panel { min-height: 0; }
+.canvas-scroll { height: 430px; flex: 1 0 430px; min-height: 0; padding: 0 12px 12px; }
+.paper { flex-shrink: 0; }
+.canvas-feedback { padding: 7px 12px; font-size: 12px; line-height: 1.5; color: #43563c; background: #f5f7f1; border-top: 1px solid #e1e6dc; flex-shrink: 0; overflow-wrap: anywhere; }
+.canvas-status { height: 28px; flex-shrink: 0; font-size: 11px; color: #52634d; padding: 0 12px; }
+.properties-title { font-size: 13px; height: 46px; background: #fdfefb; }
+.tiny-label { display: none; }
+.selected-title { display: block; padding: 12px; }
+.selected-title > span { display: block; margin-bottom: 8px; overflow-wrap: anywhere; }
+.selected-title > div { gap: 5px; flex-wrap: wrap; }
+.selected-title button { font-size: 12px; min-height: 34px; border: 1px solid #dce1da; background: white; color: #43563c; padding: 5px 7px; }
+.property-fields, .output-settings { padding-left: 13px; padding-right: 13px; }
+.property-fields label, .output-settings label { font-size: 12px; color: #43563c; gap: 5px; margin-bottom: 12px; }
+.property-fields input, .property-fields select, .output-settings select { font-size: 13px; height: 36px; }
+.property-fields small, .field-note { font-size: 12px; color: #52634d; line-height: 1.6; }
+.checkbox-label { font-size: 12px !important; }
+.checkbox-label input { height: 15px; width: 15px; }
+.empty-inspector { padding: 25px 13px; }
+.empty-inspector strong { font-size: 13px; color: #43563c; }
+.empty-inspector p, .shortcut-grid { font-size: 12px; color: #52634d; }
+.wide-button, .below-editor button { font-size: 12px; }
+.below-editor { padding: 8px 2px; justify-content: flex-end; }
+.export-menu { top: 44px; }
+.export-menu small { font-size: 12px; color: #52634d; line-height: 1.5; }
+.help-dialog p, .help-dialog li strong, .help-callout strong { font-size: 13px; }
+.help-limit { font-size: 12px !important; color: #52634d; }
+.header-note, .eyebrow span { color: #52634d; }
+.warnings { font-size: 12px; color: #635b35; }
+.warnings p, footer { font-size: 12px; line-height: 1.7; }
+footer { color: #52634d; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible,
+.paper [tabindex]:focus-visible { outline: 3px solid #2b7a61; outline-offset: 3px; }
+
+@media (min-width: 1100px) {
+  .editor-layout { height: calc(100dvh - 224px); min-height: 520px; }
+  .library-panel, .properties-panel { overflow: auto; overscroll-behavior: contain; }
+  .panel-tabs, .properties-title { position: sticky; top: 0; z-index: 2; }
+  .canvas-scroll { height: auto; flex: 1 1 0; min-height: 0; }
+}
+@media (max-width: 1099px) and (min-width: 951px) {
+  .editor-layout { grid-template-columns: 195px minmax(0, 1fr) 250px; }
+}
+@media (max-width: 950px) and (min-width: 621px) {
+  .editor-layout { grid-template-columns: 195px minmax(0, 1fr); }
+  .library-panel { max-height: 650px; }
+}
+@media (max-width: 620px) {
+  .app-header { height: 58px; padding: 0 12px; }
+  main { padding: 12px 10px 0; }
+  .pwa-panel { padding: 5px 10px; }
+  .pwa-line details { flex-basis: auto; }
+  .document-bar { margin-bottom: 12px; gap: 10px; }
+  .local-badge { font-size: 11px; gap: 5px; }
+  .edit-data-hint { font-size: 12px; line-height: 1.6; }
+  .edit-data-buttons button { padding: 8px; }
+  .panel-tabs { height: 44px; padding-left: 12px; }
+  .library-instructions { margin: 10px 12px; }
+  .part-button { min-width: 70px; }
+  .utility-list button { font-size: 12px; }
+  .template-list { max-height: 240px; padding: 0 10px 10px; gap: 7px; }
+  .template-list button { padding: 9px; }
+  .new-document { margin: 8px 10px; min-height: 34px; }
+  .canvas-toolbar { flex-wrap: wrap; height: auto; min-height: 46px; overflow: visible; padding: 5px; }
+  .canvas-toolbar button { padding: 6px; }
+  .canvas-toolbar .zoom-label { display: none; }
+  .canvas-hint { align-items: flex-start; padding: 8px 10px; }
+  .canvas-hint > svg { margin-top: 3px; }
+  .canvas-hint button { font-size: 11px; padding: 4px 6px; }
+  .canvas-scroll { height: 370px; flex: 0 0 370px; min-height: 0; }
+  .properties-title { height: 44px; }
+  .empty-inspector p { display: block; }
+  .property-fields, .output-settings { padding-left: 13px; padding-right: 13px; }
+  .property-fields small { grid-column: 1 / -1; margin-bottom: 12px; }
+  .below-editor .quiet { display: inline-flex; }
+}
+@media print {
+  .canvas-feedback { display: none; }
+  .editor-layout { height: auto; min-height: 0; }
+}

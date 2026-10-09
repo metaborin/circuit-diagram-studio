@@ -21,14 +21,17 @@ function initialDocument(): CircuitDocument {
   try { const data = localStorage.getItem(STORAGE_KEY); if (data) return validateDocument(JSON.parse(data)) } catch { /* A damaged local draft never prevents opening the editor. */ }
   return templates.find(t => t.id === 'resistor-series')?.create() ?? templates[0].create()
 }
-const describeTool = (tool: Tool, wiring: boolean) => tool === 'wire' ? wiring ? '次の端子・接続点・配線をクリック。空白をクリックすると中継点を追加。Esc で終了。' : '始点の端子・接続点・配線をクリックしてください。空白からも始められます。' : tool === 'select' ? '部品をドラッグで移動。クリックで数値・ラベルを編集できます。' : '図上をクリックして配置します。Esc で選択ツールに戻ります。'
+const toolName = (tool: Tool, wiring: boolean) => tool === 'wire' ? wiring ? '配線：終点を選ぶ' : '配線：始点を選ぶ' : tool === 'select' ? '選択・移動' : `${parts.find(p => p.kind === tool)?.name ?? ({ junction: '接続点', terminal: '端子', text: 'テキスト', current: '電流矢印', voltage: '電圧・極性' } as Record<string, string>)[tool]}を追加`
+const describeTool = (tool: Tool, wiring: boolean) => tool === 'wire' ? wiring ? '終点の端子をクリック。空白で中継点を追加できます。Escで終了。' : '始点の端子をクリック。配線上からは分岐を作れます。' : tool === 'select' ? '部品を選んで値・記号を編集。ドラッグまたは矢印キーで移動、Rで回転。' : '図上の置きたい位置をクリック。Escで選択に戻れます。'
 
 export default function App() {
   const [history, setHistory] = useState<History>(() => ({ past: [], present: initialDocument(), future: [] }))
   const doc = history.present
   const [selection, setSelection] = useState<Selection>(null)
   const [tool, setTool] = useState<Tool>('select')
-  const [tab, setTab] = useState<'parts' | 'templates'>('parts')
+  const [tab, setTab] = useState<'parts' | 'templates'>(() => {
+    try { return localStorage.getItem(STORAGE_KEY) ? 'parts' : 'templates' } catch { return 'templates' }
+  })
   const [wireStart, setWireStart] = useState<Anchor | null>(null)
   const [pointer, setPointer] = useState<Point | null>(null)
   const [grid, setGrid] = useState(true)
@@ -41,7 +44,16 @@ export default function App() {
     try { return localStorage.getItem(STORAGE_KEY) ? '' : JSON.stringify(doc) } catch { return JSON.stringify(doc) }
   })
   const [showExport, setShowExport] = useState(false)
+  const [fileSaved, setFileSaved] = useState<boolean | null>(() => {
+    // A recovered browser draft does not prove that a portable file was saved.
+    try { return localStorage.getItem(STORAGE_KEY) ? null : false } catch { return false }
+  })
+  const [fitWidth, setFitWidth] = useState(560)
   const fileInput = useRef<HTMLInputElement>(null)
+  const canvasViewport = useRef<HTMLDivElement>(null)
+  const helpDialog = useRef<HTMLElement>(null)
+  const exportWrap = useRef<HTMLDivElement>(null)
+  const exportButton = useRef<HTMLButtonElement>(null)
   const drag = useRef<{ before: CircuitDocument; selection: NonNullable<Selection>; start: Point; origin: Point; moved: boolean } | null>(null)
   const dirty = saved !== JSON.stringify(doc)
   const warnings = getWarnings(doc)
@@ -50,6 +62,7 @@ export default function App() {
   const annotation = selection?.type === 'annotation' ? doc.annotations.find(c => c.id === selection.id) : undefined
   const wire = selection?.type === 'wire' ? doc.wires.find(c => c.id === selection.id) : undefined
   const commit = (next: CircuitDocument) => {
+    if (JSON.stringify(next) !== JSON.stringify(doc)) setFileSaved(previous => previous === null ? false : previous)
     setHistory(h => JSON.stringify(next) === JSON.stringify(h.present) ? h : ({ past: [...h.past.slice(-79), h.present], present: next, future: [] }))
   }
   const changeTool = (next: Tool) => { setTool(next); setWireStart(null); setPointer(null) }
@@ -75,7 +88,49 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', guard)
   }, [dirty])
   useEffect(() => {
+    const viewport = canvasViewport.current
+    if (!viewport) return
+    const observer = new ResizeObserver(() => {
+      const style = getComputedStyle(viewport)
+      const width = viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+      setFitWidth(Math.max(560, width - 2))
+    })
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    if (!help) return
+    const previous = document.activeElement as HTMLElement | null
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    helpDialog.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    return () => { document.body.style.overflow = overflow; previous?.focus() }
+  }, [help])
+  useEffect(() => {
+    if (!showExport) return
+    exportWrap.current?.querySelector<HTMLButtonElement>('.export-menu button')?.focus()
+    const closeOutside = (event: globalThis.PointerEvent) => {
+      if (!exportWrap.current?.contains(event.target as Node)) setShowExport(false)
+    }
+    document.addEventListener('pointerdown', closeOutside)
+    return () => document.removeEventListener('pointerdown', closeOutside)
+  }, [showExport])
+  const fitDiagram = () => {
+    const viewport = canvasViewport.current
+    if (!viewport) return
+    const style = getComputedStyle(viewport)
+    const width = viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 2
+    const height = viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - 2
+    setZoom(Math.max(.25, Math.min(1, width / fitWidth, height / (fitWidth * 680 / 1040))))
+    viewport.scrollTo(0, 0)
+  }
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (help) return
+      if (showExport) {
+        if (e.key === 'Escape') { e.preventDefault(); setShowExport(false); exportButton.current?.focus() }
+        return
+      }
       if ((e.target as HTMLElement).closest('input, textarea, select, [contenteditable=true]')) return
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return }
@@ -151,6 +206,7 @@ export default function App() {
     const d=drag.current; if(!d) return
     const dx=p.x-d.start.x,dy=p.y-d.start.y; if(!dx&&!dy&&!d.moved) return
     d.moved=true; const next=clone(d.before)
+    setFileSaved(previous => previous === null ? false : previous)
     const item=(d.selection.type==='component'?next.components:d.selection.type==='junction'?next.junctions:next.annotations).find(x=>x.id===d.selection.id)!
     item.x=Math.max(40,Math.min(1000,d.origin.x+dx));item.y=Math.max(60,Math.min(620,d.origin.y+dy))
     setHistory(h=>({...h,present:next}))
@@ -160,21 +216,23 @@ export default function App() {
     if(d?.moved) setHistory(h=>({past:[...h.past.slice(-79),d.before],present:h.present,future:[]}))
   }
   const replaceDocument = (next: CircuitDocument) => {
-    if(dirty && !window.confirm('編集中の図を切り替えます。必要ならキャンセルして「編集データを保存」を押してください。切り替え後も「元に戻す」で戻せます。')) return
-    commit(next); setSelection(null); changeTool('select'); setSaved(JSON.stringify(next));setNotice('図を切り替えました。元の図には「元に戻す」で戻れます。')
+    if(dirty && !window.confirm('編集中の図を切り替えます。必要ならキャンセルして「編集データを保存」を押してください。切り替え後も「元に戻す」で戻せます。')) return false
+    commit(next); setSelection(null); changeTool('select'); setTab('parts'); setSaved(JSON.stringify(next)); setFileSaved(false); setNotice('図を切り替えました。元の図には「元に戻す」で戻れます。')
+    return true
   }
   const loadFile = async (file?: File) => {
     if(!file) return
-    try { if(file.size>2_000_000) throw new Error('ファイルは2MB以下にしてください。'); const next=validateDocument(JSON.parse(await file.text()));replaceDocument(next) }
+    try { if(file.size>2_000_000) throw new Error('ファイルは2MB以下にしてください。'); const next=validateDocument(JSON.parse(await file.text()));if(replaceDocument(next)) { setFileSaved(true); setNotice('編集データを開きました。続きから編集できます。') } }
     catch(e) { setNotice(`読み込めませんでした：${e instanceof Error?e.message:'ファイル形式を確認してください。'}`) }
     if(fileInput.current) fileInput.current.value=''
   }
-  const saveJson = () => { downloadJson(doc);setSaved(JSON.stringify(doc));setNotice('編集データを保存しました。このファイルから別の端末でも編集を再開できます。') }
+  const saveJson = () => { downloadJson(doc);setSaved(JSON.stringify(doc));setFileSaved(true);setNotice('編集データを保存しました。このファイルから別の端末でも編集を再開できます。') }
   const doExport = async (format:'svg'|'png'|'print') => {
     const issues = getExportIssues(doc)
-    if (issues.length) { setNotice(`接続が紛らわしい配置のため出力を停止しました：${issues[0]} 配線の通過点や部品位置を調整してください。`); setShowExport(false); return }
-    try { if(format==='svg') downloadSvg(doc); else if(format==='png') await downloadPng(doc,3); else printDiagram(doc);setNotice(format==='print'?'印刷用画面で「印刷 / PDF保存」を押し、送信先「PDFに保存」を選べます。':`${format.toUpperCase()}を書き出しました。図だけを白黒で出力しています。`);setShowExport(false) }
+    if (issues.length) { setNotice(`接続が紛らわしい配置のため出力を停止しました：${issues[0]} 配線の通過点や部品位置を調整してください。`); setShowExport(false); exportButton.current?.focus(); return }
+    try { if(format==='svg') downloadSvg(doc); else if(format==='png') await downloadPng(doc,3); else printDiagram(doc);setNotice(format==='print'?'印刷用画面で「印刷 / PDF保存」を押し、送信先「PDFに保存」を選べます。':`${format.toUpperCase()}を書き出しました。図だけを白黒で出力しています。`) }
     catch(e) {setNotice(`出力できませんでした：${e instanceof Error?e.message:'もう一度お試しください。'}`)}
+    setShowExport(false); exportButton.current?.focus()
   }
   const previewStart=wireStart?resolveAnchor(doc,wireStart):null
   const duplicate = () => { if(!component&&!annotation) return;const next=clone(doc);const item=clone((component??annotation)!);item.id=uid(component?'c':'a');item.x=Math.min(1000,item.x+40);item.y=Math.min(620,item.y+40);if(component) next.components.push(item as CircuitComponent);else next.annotations.push(item as Annotation);commit(next);setSelection({type:component?'component':'annotation',id:item.id}) }
@@ -192,20 +250,20 @@ export default function App() {
   }
   const positionFields = (item: Point) => <div className="two-fields"><label>X 座標<input aria-label="X 座標" type="number" min="40" max="1000" step="20" value={item.x} onChange={e=>patchSelected({x:Math.max(40,Math.min(1000,snap(Number(e.target.value))))})}/></label><label>Y 座標<input aria-label="Y 座標" type="number" min="60" max="620" step="20" value={item.y} onChange={e=>patchSelected({y:Math.max(60,Math.min(620,snap(Number(e.target.value))))})}/></label></div>
   return <>
-    <header className="app-header"><a className="brand" href="./"><span className="brand-icon"><CircuitBoard size={24}/></span><span>回路図スタジオ<small>CIRCUIT DIAGRAM STUDIO</small></span></a><div className="header-note">電気の教材を、きれいな回路図に。</div><button className="quiet" onClick={()=>setHelp(true)}><CircleHelp size={17}/>使い方</button><a className="github-link" href="https://github.com/metaborin/circuit-diagram-studio" target="_blank" rel="noreferrer">GitHub <ArrowRight size={13}/></a></header>
-    <main>
+    <header className="app-header" inert={help}><a className="brand" href="./"><span className="brand-icon"><CircuitBoard size={24}/></span><span>回路図スタジオ<small>CIRCUIT DIAGRAM STUDIO</small></span></a><div className="header-note">電気の教材を、きれいな回路図に。</div><button className="quiet" onClick={()=>setHelp(true)}><CircleHelp size={17}/>使い方</button><a className="github-link" href="https://github.com/metaborin/circuit-diagram-studio" target="_blank" rel="noreferrer">GitHub <ArrowRight size={13}/></a></header>
+    <main inert={help}>
       <PwaPanel />
-      <section className="document-bar"><div className="document-heading"><span className="eyebrow">WORKSPACE <span>高校電気科の教材づくりに</span></span><input className="title-input" aria-label="図のタイトル" value={doc.title} maxLength={80} onChange={e=>commit({...doc,title:e.target.value})}/><span className="local-badge"><span/>{storageOk ? '端末内で編集・保存' : '自動保存できません'} <span className="badge-divider">/</span> v1.0</span></div><div className="document-actions"><input ref={fileInput} type="file" accept=".json,application/json" className="visually-hidden" aria-label="編集データのJSONファイルを開く" onChange={e=>void loadFile(e.target.files?.[0])}/>
+      <section className="document-bar"><div className="document-heading"><span className="eyebrow">WORKSPACE <span>高校電気科の教材づくりに</span></span><input className="title-input" aria-label="図のタイトル" value={doc.title} maxLength={80} onChange={e=>commit({...doc,title:e.target.value})}/><div className="local-badge" aria-live="polite"><span/>{storageOk ? 'ブラウザに自動保存済み' : '自動保存できません'}<span className={`file-save-status ${dirty || !fileSaved ? 'unsaved' : ''}`}>{fileSaved===null ? '編集データの保存を確認' : dirty || !fileSaved ? '編集データは未保存' : '編集データは保存済み'}</span></div></div><div className="document-actions"><input ref={fileInput} type="file" accept=".json,application/json" className="visually-hidden" tabIndex={-1} aria-label="編集データのJSONファイルを開く" onChange={e=>void loadFile(e.target.files?.[0])}/>
         <div className="edit-data-actions"><div className="edit-data-buttons">
           <button title="編集データを開く（JSON形式）" aria-label="編集データを開く" onClick={()=>fileInput.current?.click()}><FolderOpen size={16} aria-hidden="true"/>編集データを開く</button>
           <button title="編集データを保存（JSON形式）" aria-label="編集データを保存" aria-describedby="edit-data-hint" onClick={saveJson}><Save size={16} aria-hidden="true"/>編集データを保存</button>
-        </div><p id="edit-data-hint" className="edit-data-hint">あとで開いて、続きから編集できます（JSON形式）</p></div><div className="export-wrap"><button className="primary" aria-expanded={showExport} onClick={()=>setShowExport(!showExport)}><ArrowDownToLine size={17}/>図を書き出す<ChevronDown size={14}/></button>{showExport&&<div className="export-menu"><button onClick={()=>void doExport('png')}><Download size={16}/><span>PNG画像<small>Wordに貼り付け・3倍解像度</small></span></button><button onClick={()=>void doExport('svg')}><Workflow size={16}/><span>SVG画像<small>拡大しても鮮明なベクター</small></span></button><button onClick={()=>void doExport('print')}><FileJson size={16}/><span>印刷 / PDF<small>ブラウザの「PDFに保存」を利用</small></span></button></div>}</div></div></section>
+        </div><p id="edit-data-hint" className="edit-data-hint">あとで開いて、続きから編集できます（JSON形式）</p></div><div className="export-wrap" ref={exportWrap} onKeyDown={e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setShowExport(false);exportButton.current?.focus()}}}><button ref={exportButton} className="primary" aria-controls="diagram-export" aria-expanded={showExport} onClick={()=>setShowExport(!showExport)}><ArrowDownToLine size={17}/>図を書き出す<ChevronDown size={14}/></button>{showExport&&<div id="diagram-export" className="export-menu" role="group" aria-label="画像・PDFを書き出す"><button onClick={()=>void doExport('png')}><Download size={16}/><span>PNG画像<small>Wordに貼り付け・3倍解像度</small></span></button><button onClick={()=>void doExport('svg')}><Workflow size={16}/><span>SVG画像<small>拡大しても鮮明なベクター</small></span></button><button onClick={()=>void doExport('print')}><FileJson size={16}/><span>印刷 / PDF<small>ブラウザの「PDFに保存」を利用</small></span></button></div>}</div></div></section>
       <div className="editor-layout">
-        <aside className="library-panel"><div className="panel-tabs"><button className={tab==='parts'?'active':''} onClick={()=>setTab('parts')}>部品</button><button className={tab==='templates'?'active':''} onClick={()=>setTab('templates')}>ひな形</button></div>{tab==='parts'?<><div className="panel-section-heading">回路部品 <span>クリックして配置</span></div><div className="parts-grid">{parts.map(p=><button key={p.kind} className={`part-button ${tool===p.kind?'active':''}`} onClick={()=>changeTool(p.kind)} title={`${p.name}を追加`}><span className="part-symbol">{p.mark}</span><span>{p.name}</span></button>)}</div><div className="panel-section-heading">接続・注記</div><div className="utility-list">{([{id:'junction',mark:'●',name:'接続点'},{id:'terminal',mark:'○',name:'端子'},{id:'text',mark:'T',name:'テキスト'},{id:'current',mark:'→',name:'電流矢印'},{id:'voltage',mark:'+ −',name:'電圧・極性'}] as const).map(x=><button className={tool===x.id?'active':''} key={x.id} onClick={()=>changeTool(x.id)}><span>{x.mark}</span>{x.name}<Plus size={13}/></button>)}</div><div className="library-tip"><Zap size={17}/><p>ひな形から、すぐに。<small>直並列・RLC・ブリッジなど、授業で使う基本回路を用意しました。</small></p><button onClick={()=>setTab('templates')}>ひな形を見る <ArrowRight size={14}/></button></div></>:<><div className="panel-section-heading">回路のひな形 <span>{templates.length}種類</span></div><div className="template-list">{templates.map(t=><button key={t.id} data-testid={`template-${t.id}`} onClick={()=>replaceDocument(t.create())}><small>{t.category}</small><strong>{t.name}</strong><span>{t.description}</span></button>)}</div></>}<button className="new-document" onClick={()=>{if(window.confirm('新しい空白の図にしますか？現在の図は「元に戻す」で復元できます。必要なら先に「編集データを保存」を押してください。')){commit(blankDocument());setSelection(null);changeTool('select')}}}><Plus size={15}/>空白の図を作成</button></aside>
-        <section className="canvas-panel" aria-label="回路図編集エリア"><div className="canvas-toolbar"><div className="tool-group"><button title="選択・移動 (Esc)" aria-label="選択・移動" className={tool==='select'?'active':''} onClick={()=>changeTool('select')}><MousePointer2 size={17}/><span>選択</span></button><button title="端子・接続点から配線" aria-label="配線" className={tool==='wire'?'active':''} onClick={()=>changeTool('wire')}><Workflow size={17}/><span>配線</span></button></div><span className="toolbar-separator"/><button title="元に戻す (Ctrl+Z)" aria-label="元に戻す" disabled={!history.past.length} onClick={undo}><Undo2 size={17}/></button><button title="やり直す (Ctrl+Y)" aria-label="やり直す" disabled={!history.future.length} onClick={redo}><Redo2 size={17}/></button><div className="toolbar-spacer"/><button title="グリッド表示" aria-label="グリッド表示" aria-pressed={grid} className={grid?'on':''} onClick={()=>setGrid(!grid)}><Grid2X2 size={16}/></button><span className="toolbar-separator"/><button aria-label="縮小" title="縮小" onClick={()=>setZoom(Math.max(.75,zoom-.25))}><Minus size={15}/></button><span className="zoom-label">{Math.round(zoom*100)}%</span><button aria-label="拡大" title="拡大" onClick={()=>setZoom(Math.min(2,zoom+.25))}><Plus size={15}/></button><button aria-label="全体表示" title="全体表示" onClick={()=>setZoom(1)}><Maximize2 size={15}/></button></div>
-        <div className="canvas-caption"><span><span className="paper-dot"/>白黒の回路図</span><span>グリッド 20 · スナップ ON</span></div><div className={`canvas-scroll tool-${tool}`}><div className="paper" style={{width:zoom===1?'100%':`${zoom*100}%`,minWidth:zoom===1?560:560*zoom}}><CircuitSvg document={doc} selected={selection} showPorts grid={grid} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>{previewStart&&pointer&&<path d={`M ${previewStart.x} ${previewStart.y} H ${pointer.x} V ${pointer.y}`} fill="none" stroke="#2b7a61" strokeWidth="2" strokeDasharray="6 5" pointerEvents="none"/>}</CircuitSvg></div></div>
-        <div className="canvas-hint"><MousePointer2 size={14}/><span>{describeTool(tool,!!wireStart)}</span>{wireStart&&<button onClick={()=>setWireStart(null)}>配線を終了</button>}</div><div className="canvas-status"><span>{doc.components.length} 部品 <span>·</span> {doc.wires.length} 配線</span><span><Check size={13}/> 接続は端子に追従</span></div></section>
-        <aside className="properties-panel"><div className="properties-title"><span>プロパティ</span><span className="tiny-label">INSPECTOR</span></div>{selection?<><div className="selected-title"><span>{component?parts.find(p=>p.kind===component.kind)?.name:junction?junction.terminal?'端子':'接続点':wire?'配線':'注記'}</span><div>{(component||annotation)&&<><button title="複製" aria-label="複製" onClick={duplicate}><Copy size={15}/></button><button title="90°回転 (R)" aria-label="90°回転" onClick={rotate}><RotateCw size={15}/></button></>}<button title="削除 (Delete)" aria-label="削除" onClick={remove}><Trash2 size={15}/></button></div></div>
+        <aside className="library-panel"><div className="panel-tabs"><button aria-pressed={tab==='templates'} className={tab==='templates'?'active':''} onClick={()=>setTab('templates')}>ひな形</button><button aria-pressed={tab==='parts'} className={tab==='parts'?'active':''} onClick={()=>setTab('parts')}>部品</button></div>{tab==='parts'?<><div className="panel-section-heading">回路部品 <span>クリックして配置</span></div><div className="parts-grid">{parts.map(p=><button key={p.kind} className={`part-button ${tool===p.kind?'active':''}`} onClick={()=>changeTool(p.kind)} aria-label={`${p.name}を追加`} aria-pressed={tool===p.kind} title={`${p.name}を追加`}><span className="part-symbol" aria-hidden="true">{p.mark}</span><span>{p.name}</span></button>)}</div><div className="panel-section-heading">接続・注記</div><div className="utility-list">{([{id:'junction',mark:'●',name:'接続点'},{id:'terminal',mark:'○',name:'端子'},{id:'text',mark:'T',name:'テキスト'},{id:'current',mark:'→',name:'電流矢印'},{id:'voltage',mark:'+ −',name:'電圧・極性'}] as const).map(x=><button className={tool===x.id?'active':''} key={x.id} aria-label={x.name} aria-pressed={tool===x.id} onClick={()=>changeTool(x.id)}><span aria-hidden="true">{x.mark}</span>{x.name}<Plus size={13}/></button>)}</div><div className="library-tip"><Zap size={17}/><p>ひな形から、すぐに。<small>直並列・RLC・ブリッジなど、授業で使う基本回路を用意しました。</small></p><button onClick={()=>setTab('templates')}>ひな形を見る <ArrowRight size={14}/></button></div></>:<><div className="panel-section-heading">回路のひな形 <span>{templates.length}種類</span></div><p className="library-instructions">近い回路を選んで始めます。部品や値はあとから変更できます。</p><div className="template-list">{templates.map(t=><button key={t.id} data-testid={`template-${t.id}`} onClick={()=>replaceDocument(t.create())}><small>{t.category}</small><strong>{t.name}</strong><span>{t.description}</span></button>)}</div></>}<button className="new-document" onClick={()=>{if(window.confirm('新しい空白の図にしますか？現在の図は「元に戻す」で復元できます。必要なら先に「編集データを保存」を押してください。')){commit(blankDocument());setSelection(null);setFileSaved(false);setTab('parts');changeTool('select')}}}><Plus size={15}/>空白の図を作成</button></aside>
+        <section className="canvas-panel" aria-label="回路図編集エリア"><div className="canvas-toolbar"><div className="tool-group"><button title="選択・移動 (Esc)" aria-label="選択・移動" aria-pressed={tool==='select'} className={tool==='select'?'active':''} onClick={()=>changeTool('select')}><MousePointer2 size={17}/><span>選択</span></button><button title="端子・接続点から配線" aria-label="配線" aria-pressed={tool==='wire'} className={tool==='wire'?'active':''} onClick={()=>changeTool('wire')}><Workflow size={17}/><span>配線</span></button></div><span className="toolbar-separator"/><button title="元に戻す (Ctrl+Z)" aria-label="元に戻す" disabled={!history.past.length} onClick={undo}><Undo2 size={17}/></button><button title="やり直す (Ctrl+Y)" aria-label="やり直す" disabled={!history.future.length} onClick={redo}><Redo2 size={17}/></button><div className="canvas-view-tools" role="group" aria-label="図の表示"><button title="グリッド表示" aria-label="グリッド表示" aria-pressed={grid} className={grid?'on':''} onClick={()=>setGrid(!grid)}><Grid2X2 size={16}/></button><span className="toolbar-separator"/><button aria-label="縮小" title="縮小" onClick={()=>setZoom(Math.max(.25,zoom-.25))}><Minus size={15}/></button><span className="zoom-label">{Math.round(zoom*100)}%</span><button aria-label="拡大" title="拡大" onClick={()=>setZoom(Math.min(2,zoom+.25))}><Plus size={15}/></button><button aria-label="全体表示" title="図全体を作図領域に収める" onClick={fitDiagram}><Maximize2 size={15} aria-hidden="true"/><span>全体表示</span></button></div></div>
+        <div className="canvas-hint" aria-live="polite"><MousePointer2 size={16} aria-hidden="true"/><span><strong>{toolName(tool,!!wireStart)}</strong>{describeTool(tool,!!wireStart)}</span>{tool!=='select'&&<button title="選択に戻る (Esc)" onClick={()=>changeTool('select')}>選択に戻る</button>}</div><div className="canvas-caption"><span><span className="paper-dot"/>白黒の回路図</span><span>グリッド 20 · スナップ ON</span></div><div ref={canvasViewport} className={`canvas-scroll tool-${tool}`}><div className="paper" style={{width:fitWidth*zoom}}><CircuitSvg document={doc} selected={selection} showPorts grid={grid} onSelect={next=>{setSelection(next);changeTool('select')}} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>{previewStart&&pointer&&<path d={`M ${previewStart.x} ${previewStart.y} H ${pointer.x} V ${pointer.y}`} fill="none" stroke="#2b7a61" strokeWidth="2" strokeDasharray="6 5" pointerEvents="none"/>}</CircuitSvg></div></div>
+        <div className="canvas-feedback" role="status" aria-live="polite">{notice}</div><div className="canvas-status"><span>{doc.components.length} 部品 <span>·</span> {doc.wires.length} 配線</span><span><Check size={13}/> 接続は端子に追従</span></div></section>
+        <aside className="properties-panel"><div className="properties-title"><span>プロパティ</span><span className="tiny-label">INSPECTOR</span></div>{selection?<><div className="selected-title"><span>{component?`${parts.find(p=>p.kind===component.kind)?.name} · ${component.label}`:junction?junction.terminal?'端子':'接続点':wire?'配線':'注記'}</span><div>{(component||annotation)&&<><button title="複製" aria-label="複製" onClick={duplicate}><Copy size={15} aria-hidden="true"/>複製</button><button title="90°回転 (R)" aria-label="90°回転" onClick={rotate}><RotateCw size={15} aria-hidden="true"/>90°回転</button></>}<button title="削除 (Delete)" aria-label="削除" onClick={remove}><Trash2 size={15} aria-hidden="true"/>削除</button></div></div>
           {component&&<div className="property-fields"><label>記号<input value={component.label} aria-label="記号" maxLength={80} placeholder="R_1" onChange={e=>patchSelected({label:e.target.value})}/><small>R_1 → R₁ のように添字で表示</small></label><div className="two-fields"><label>値<input value={component.value} aria-label="値" maxLength={80} placeholder="10" onChange={e=>patchSelected({value:e.target.value})}/></label><label>単位<input value={component.unit} aria-label="単位" maxLength={40} placeholder="Ω" list="units" onChange={e=>patchSelected({unit:e.target.value})}/></label></div><label>補足ラベル<input value={component.detail} aria-label="補足ラベル" maxLength={100} placeholder="50 Hz / ∠30° / 実効値" onChange={e=>patchSelected({detail:e.target.value})}/></label><label>問題用の表示<select value={component.labelMode} aria-label="問題用の表示" onChange={e=>patchSelected({labelMode:e.target.value})}><option value="show">記号・値・単位を表示</option><option value="question">値を ? にする</option><option value="blank">値を空欄にする</option><option value="hidden">ラベルをすべて非表示</option></select></label>{component.kind==='switch'&&<label className="checkbox-label"><input type="checkbox" checked={!!component.closed} onChange={e=>patchSelected({closed:e.target.checked})}/>スイッチを閉じる</label>}<div className="field-divider"/><label>向き<select value={component.rotation} aria-label="向き" onChange={e=>patchSelected({rotation:Number(e.target.value)})}>{[0,90,180,270].map(n=><option key={n} value={n}>{n}°</option>)}</select></label>{positionFields(component)}<div className="two-fields"><label>ラベル X<input aria-label="ラベル X" type="number" min="-400" max="400" step="10" value={component.labelDx} onChange={e=>patchSelected({labelDx:Math.max(-400,Math.min(400,Number(e.target.value)))})}/></label><label>ラベル Y<input aria-label="ラベル Y" type="number" min="-400" max="400" step="10" value={component.labelDy} onChange={e=>patchSelected({labelDy:Math.max(-400,Math.min(400,Number(e.target.value)))})}/></label></div><p className="field-note">文字が重なったときは、ラベル X・Y で位置を調整できます。</p></div>}
           {junction&&<div className="property-fields"><label>端子名<input aria-label="端子名" value={junction.label} maxLength={60} onChange={e=>patchSelected({label:e.target.value})}/></label><label className="checkbox-label"><input type="checkbox" checked={junction.terminal} onChange={e=>patchSelected({terminal:e.target.checked})}/>白丸の端子として表示</label>{positionFields(junction)}<button className="wide-button" onClick={joinAtJunction}>この位置の配線を結合</button><p className="field-note">交差している別の配線も、この接続点へ明示的に接続します。結合前は交差しても接続しません。</p></div>}
           {annotation&&<div className="property-fields"><label>表示テキスト<input aria-label="表示テキスト" value={annotation.text} maxLength={160} onChange={e=>patchSelected({text:e.target.value})}/></label><label>向き<select aria-label="向き" value={annotation.rotation} onChange={e=>patchSelected({rotation:Number(e.target.value)})}>{[0,90,180,270].map(n=><option key={n}>{n}</option>)}</select></label>{positionFields(annotation)}<p className="field-note">注記は独立した図形です。部品を移動したときは矢印の位置・向きも確認してください。</p></div>}
@@ -213,10 +271,10 @@ export default function App() {
         </>:<div className="empty-inspector"><MousePointer2 size={26}/><strong>図の中の部品を選択</strong><p>値や記号、向きなどを<br/>ここで編集できます。</p><div className="shortcut-grid"><span>移動</span><kbd>ドラッグ / 矢印キー</kbd><span>回転</span><kbd>R</kbd><span>削除</span><kbd>Delete</kbd></div></div>}
         <div className="output-settings"><div className="panel-section-heading">図の設定</div><label>抵抗の記号<select aria-label="抵抗の記号" value={doc.settings.resistorStyle} onChange={e=>commit({...doc,settings:{...doc.settings,resistorStyle:e.target.value as 'iec'|'zigzag'}})}><option value="iec">長方形（IEC）</option><option value="zigzag">ジグザグ</option></select></label><label>出力の余白<select aria-label="出力の余白" value={doc.settings.margin} onChange={e=>commit({...doc,settings:{...doc.settings,margin:Number(e.target.value)}})}><option value="20">小さめ · 20</option><option value="40">標準 · 40</option><option value="80">広め · 80</option></select></label><label className="checkbox-label"><input type="checkbox" checked={doc.settings.showTitle} onChange={e=>commit({...doc,settings:{...doc.settings,showTitle:e.target.checked}})}/>タイトルも書き出す</label></div></aside>
       </div>
-      <div className="below-editor"><div role="status" aria-live="polite"><span className="status-dot"/>{notice}</div><button className="quiet" onClick={()=>setHelp(true)}>接続と出力について <CircleHelp size={14}/></button></div>{warnings.length>0&&<details className="warnings"><summary>接続・配置の確認メモ（{warnings.length}件）</summary><ul>{warnings.map((w,i)=><li key={i}>{w}</li>)}</ul><p>計算や回路の正誤を判定するものではありません。出題前に図を確認してください。</p></details>}
+      <div className="below-editor"><button className="quiet" onClick={()=>setHelp(true)}>接続と出力について <CircleHelp size={14}/></button></div>{warnings.length>0&&<details className="warnings"><summary>接続・配置の確認メモ（{warnings.length}件）</summary><ul>{warnings.map((w,i)=><li key={i}>{w}</li>)}</ul><p>計算や回路の正誤を判定するものではありません。出題前に図を確認してください。</p></details>}
       <footer><span>高校範囲の基本回路を作図するツール。回路計算・シミュレーション機能はありません。</span><span>データは端末内 · ログイン不要 · 無料</span></footer>
     </main>
     <datalist id="units">{['Ω','kΩ','MΩ','H','mH','μH','F','μF','nF','pF','V','V RMS','A','mA','Hz','kHz'].map(u=><option key={u}>{u}</option>)}</datalist>
-    {help&&<div className="modal-backdrop" onClick={()=>setHelp(false)}><section className="help-dialog" role="dialog" aria-modal="true" aria-label="使い方" onClick={e=>e.stopPropagation()}><div className="help-header"><div><span className="eyebrow">QUICK GUIDE</span><h2>授業に使える回路図を、手軽に。</h2></div><button aria-label="使い方を閉じる" onClick={()=>setHelp(false)}><X size={20}/></button></div><ol><li><strong>ひな形を選ぶ、または部品を置く</strong><p>左の部品を選んで図上をクリック。ドラッグや座標入力で移動でき、R キーで90°回転できます。</p></li><li><strong>端子から端子へ配線する</strong><p>「配線」を選び、青緑の端子を順番にクリック。配線の途中をクリックすると分岐点を作れます。空白クリックで中継点を追加し、Escで終了。選択した配線には通過点も追加できます。</p></li><li><strong>数値・記号・問題用の表示を整える</strong><p>R_1 の添字、Ω・μF・mH・∠30°などに対応。値を ? や空欄にできます。交流の実効値・最大値は自動判断しないため、単位や補足に明記してください。</p></li><li><strong>保存して教材へ</strong><p>「編集データを保存」で保存し、「編集データを開く」で続きから編集できます。PNGは白背景・3倍解像度、SVGはベクター。印刷用画面からPDF保存ができます。グリッド・選択枠・端子ガイドは出力されません。</p></li></ol><div className="help-callout"><strong>線の交差と接続について</strong><p>線が交差しただけでは接続しません。非接続交差は隙間で示します。接続点は黒丸です。交差を接続したい場合は配線上に接続点を置き、選択して「この位置の配線を結合」を押してください。部品の見た目を線に重ねるだけではつながりません。</p></div><p className="help-limit">初版の範囲：二端子の集中定数回路を中心に作図できます。変圧器・半導体・三相専用記号・自動配線の障害物回避は未対応です。電流・電圧の注記は部品と独立しています。ラベルが重なる場合は位置を調整してください。ブラウザの保存領域を削除すると自動保存も消えるため、大切な図は「編集データを保存」で保存してください。</p><button className="primary" onClick={()=>setHelp(false)}>編集をはじめる <ArrowRight size={16}/></button></section></div>}
+    {help&&<div className="modal-backdrop" onClick={()=>setHelp(false)}><section ref={helpDialog} className="help-dialog" onKeyDown={e=>{e.stopPropagation();if(e.key==='Escape'){e.preventDefault();setHelp(false)}if(e.key==='Tab'){const buttons=e.currentTarget.querySelectorAll<HTMLButtonElement>('button');const first=buttons[0],last=buttons[buttons.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}}} role="dialog" aria-modal="true" aria-label="使い方" onClick={e=>e.stopPropagation()}><div className="help-header"><div><span className="eyebrow">QUICK GUIDE</span><h2>授業に使える回路図を、手軽に。</h2></div><button aria-label="使い方を閉じる" onClick={()=>setHelp(false)}><X size={20}/></button></div><ol><li><strong>ひな形を選ぶ、または部品を置く</strong><p>左の部品を選んで図上をクリック。ドラッグや座標入力で移動でき、R キーで90°回転できます。</p></li><li><strong>端子から端子へ配線する</strong><p>「配線」を選び、青緑の端子を順番にクリック。配線の途中をクリックすると分岐点を作れます。空白クリックで中継点を追加し、Escで終了。選択した配線には通過点も追加できます。</p></li><li><strong>数値・記号・問題用の表示を整える</strong><p>R_1 の添字、Ω・μF・mH・∠30°などに対応。値を ? や空欄にできます。交流の実効値・最大値は自動判断しないため、単位や補足に明記してください。</p></li><li><strong>保存して教材へ</strong><p>「編集データを保存」で保存し、「編集データを開く」で続きから編集できます。PNGは白背景・3倍解像度、SVGはベクター。印刷用画面からPDF保存ができます。グリッド・選択枠・端子ガイドは出力されません。</p></li></ol><div className="help-callout"><strong>線の交差と接続について</strong><p>線が交差しただけでは接続しません。非接続交差は隙間で示します。接続点は黒丸です。交差を接続したい場合は配線上に接続点を置き、選択して「この位置の配線を結合」を押してください。部品の見た目を線に重ねるだけではつながりません。</p></div><p className="help-limit">初版の範囲：二端子の集中定数回路を中心に作図できます。変圧器・半導体・三相専用記号・自動配線の障害物回避は未対応です。電流・電圧の注記は部品と独立しています。ラベルが重なる場合は位置を調整してください。ブラウザの保存領域を削除すると自動保存も消えるため、大切な図は「編集データを保存」で保存してください。</p><button className="primary" onClick={()=>setHelp(false)}>編集をはじめる <ArrowRight size={16}/></button></section></div>}
   </>
 }

@@ -52,6 +52,20 @@ test('installed build preserves other caches, edits offline and exports JSON SVG
   await page.goto(origin+'/bootstrap')
   await page.evaluate(async()=>{const cache=await caches.open('other-app-keep');await cache.put('/sentinel',new Response('untouched'))})
   await page.goto(origin+base); await ready(page)
+  // Validate the production layout with the offline panel present, rather than
+  // relying only on the development editor where the panel is hidden.
+  await page.getByRole('button',{name:'部品',exact:true}).click()
+  for (const [width,height] of [[1366,768],[1280,720],[390,844],[320,800]]) {
+    await page.setViewportSize({width,height})
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    if (width>=1100) {
+      const guide=await page.locator('.canvas-hint').boundingBox()
+      expect(guide!.y).toBeGreaterThanOrEqual(0)
+      expect(guide!.y+guide!.height).toBeLessThanOrEqual(height)
+    }
+    if (width===1366 || width===390) await page.screenshot({path:info.outputPath(`production-usability-${width}.png`),fullPage:true})
+  }
+  await page.setViewportSize({width:1600,height:1050})
   const session=await context.newCDPSession(page)
   const manifest=await session.send('Page.getAppManifest')
   expect(manifest.errors).toEqual([])
