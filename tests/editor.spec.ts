@@ -49,7 +49,7 @@ async function exportDownload(page: Page, format: 'SVG' | 'PNG', info: TestInfo)
 }
 async function saveJson(page: Page, info: TestInfo) {
   const downloaded = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'JSON保存', exact: true }).click()
+  await page.getByRole('button', { name: '編集データを保存', exact: true }).click()
   const path = info.outputPath('circuit.json')
   await (await downloaded).saveAs(path)
   return path
@@ -204,7 +204,9 @@ test('AC JSON roundtrip, high-resolution monochrome SVG/PNG and print PDF preser
   const jsonPath = await saveJson(page, info)
   expect(JSON.parse(await readFile(jsonPath, 'utf8'))).toEqual(before)
   await chooseTemplate(page, 'dc-simple')
-  await page.getByLabel('JSONファイルを開く').setInputFiles(jsonPath)
+  const choosingFile = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: '編集データを開く', exact: true }).click()
+  await (await choosingFile).setFiles(jsonPath)
   await expect(page.getByLabel('図のタイトル')).toHaveValue(before.title)
   expect(await current(page)).toEqual(before)
   await page.reload()
@@ -258,7 +260,7 @@ test('crossing independent loops stay disconnected until explicit junction join,
     { id: 'w3', from: port('E2', 0), to: port('R2', 0), route: 'hv', via: [{ x: 420, y: 360 }] },
     { id: 'w4', from: port('R2', 1), to: port('E2', 1), route: 'hv', via: [{ x: 980, y: 360 }, { x: 980, y: 600 }, { x: 420, y: 600 }] },
   ] }
-  await page.getByLabel('JSONファイルを開く').setInputFiles({ name: 'crossing.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(fixture)) })
+  await page.getByLabel('編集データのJSONファイルを開く').setInputFiles({ name: 'crossing.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(fixture)) })
   await expect(page.getByLabel('図のタイトル')).toHaveValue(fixture.title)
   expect(networks(await current(page))).toBe(4)
   expect(await paper(page).locator('[data-type="wire"][data-id="w3"] path').last().getAttribute('d')).toMatch(/H 694 M 706 360/)
@@ -274,7 +276,7 @@ test('crossing independent loops stay disconnected until explicit junction join,
   await page.getByRole('button', { name: '元に戻す', exact: true }).click()
   const restored = await current(page), path = await saveJson(page, info)
   await chooseTemplate(page, 'dc-simple')
-  await page.getByLabel('JSONファイルを開く').setInputFiles(path)
+  await page.getByLabel('編集データのJSONファイルを開く').setInputFiles(path)
   await expect(page.getByLabel('図のタイトル')).toHaveValue(fixture.title)
   expect(await current(page)).toEqual(restored)
   expect(networks(await current(page))).toBe(4)

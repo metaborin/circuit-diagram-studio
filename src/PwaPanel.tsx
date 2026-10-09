@@ -94,11 +94,11 @@ export function PwaPanel() {
       <details><summary>アプリ・更新について</summary><div className="pwa-help">
         <p>{installed ? 'アプリとして利用中です。' : 'Chrome・Edgeのメニューで「アプリをインストール」、対応するモバイルブラウザでは「ホーム画面に追加」を選べます。項目名はブラウザにより異なります。'}</p>
         <p>準備完了後は、回路図の編集とJSON・SVG・PNGの保存、印刷用画面をオフラインで利用できます。PDF保存はブラウザの印刷機能を使います。端末のフォントや印刷機能により表示が異なる場合があります。</p>
-        <p>図は端末内に保存されます。ブラウザのデータ削除に備え、大切な図は「JSON保存」でファイルにも保存してください。</p>
+        <p>図は端末内に保存されます。ブラウザのデータ削除に備え、大切な図は「編集データを保存」でファイルにも保存してください。</p>
         <button disabled={!online || checking || !registration.current} onClick={() => void check()}>{checking ? '確認中…' : '更新を確認'}</button>
       </div></details>
     </div>
     {message && <p className="pwa-message" aria-live="polite">{message}</p>}
-    {waiting && <p className="pwa-update" aria-live="polite">新しい版の準備ができました。編集中の図を「JSON保存」して、回路図スタジオのすべてのタブ・アプリ画面を閉じて開き直すと更新されます。</p>}
+    {waiting && <p className="pwa-update" aria-live="polite">新しい版の準備ができました。「編集データを保存」で編集中の図を保存して、回路図スタジオのすべてのタブ・アプリ画面を閉じて開き直すと更新されます。</p>}
   </section>
 }

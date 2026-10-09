@@ -41,7 +41,7 @@ async function ready(page: Page) {
 async function download(page: Page, format: 'JSON'|'SVG'|'PNG', info: TestInfo) {
   if (format !== 'JSON') await page.getByRole('button',{name:'図を書き出す'}).click()
   const pending=page.waitForEvent('download')
-  await page.getByRole('button',{name:format==='JSON'?'JSON保存':new RegExp(`^${format}画像`),exact:format==='JSON'}).click()
+  await page.getByRole('button',{name:format==='JSON'?'編集データを保存':new RegExp(`^${format}画像`),exact:format==='JSON'}).click()
   const file=await pending, target=info.outputPath(`offline.${format.toLowerCase()}`)
   await file.saveAs(target)
   return readFile(target)
